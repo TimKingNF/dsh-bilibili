@@ -1,13 +1,15 @@
 // dsh-bilibili 单元测试（零依赖，不联网）：纯函数覆盖
-// 运行：node --test test/   （或 npm test）
+// 运行：npm test（即 node --test；Node 24 下不要写成 node --test test/，目录会被当成模块路径）
 // 网络相关（真实提取/ASR/ffmpeg）不在此套件内，保留为手动验证。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { selectKeyframeTimestamps, formatTime } from "../lib/keyframes.js";
-import { parseSubtitleBody, nearestSubtitleText, guessStreamExt, parseWhisperTime, parseWhisperJson, resolveWhisperModel, parseSherpaText, resolveVisionModel, buildVisionRequest, parseChatCompletion, DEFAULT_VISION_PROMPT, resolveVisionBaseUrl, resolveVisionPrompt, parseCitationHint, VISION_PROMPT_SHORT, pickNearestPeak, parseBlurMetadata, normalizeRequestedTimestamps } from "../lib/extractor.js";
-import { formatExtraction, capTranscriptSmart, pickDanmakuPeaks, formatEnvironment, renderEnvReport } from "../lib/format.js";
+import { parseSubtitleBody, nearestSubtitleText, guessStreamExt, parseWhisperTime, parseWhisperJson, resolveWhisperModel, parseSherpaText, resolveVisionModel, buildVisionRequest, parseChatCompletion, DEFAULT_VISION_PROMPT, resolveVisionBaseUrl, resolveVisionPrompt, parseCitationHint, VISION_PROMPT_SHORT, pickNearestPeak, parseBlurMetadata, normalizeRequestedTimestamps, collectStreamUrls } from "../lib/extractor.js";
+import { formatExtraction, capTranscriptSmart, pickDanmakuPeaks, formatEnvironment, renderEnvReport, renderTranscript } from "../lib/format.js";
+import { srtTime, clockTime, toSrt, toTimestampedText, toTranscriptMarkdown, writeTranscriptFiles } from "../lib/transcript-export.js";
 import { summarizeChecks, ASR_PROVIDERS } from "../lib/envcheck.js";
+import { resolveSectionOrder, LEGACY_SECTION_ORDER } from "../lib/prompt.js";
 
 const SUBTITLE_SEGS = [
   { start: 0, end: 5, text: "大家好今天聊聊" },
@@ -77,6 +79,28 @@ test("nearestSubtitleText：±2s 窗口", () => {
   assert.equal(nearestSubtitleText(32, SUBTITLE_SEGS), "如图所示的界面");
   assert.equal(nearestSubtitleText(70, SUBTITLE_SEGS), "", "far away -> empty");
   assert.equal(nearestSubtitleText(32, undefined), "", "no segments -> empty");
+});
+
+test("collectStreamUrls：主地址在前、备用镜像在后、去重", () => {
+  const data = {
+    code: 0,
+    data: {
+      dash: {
+        video: [
+          { id: 80, baseUrl: "https://cdn-hi/80.m4s", backupUrl: ["https://b1/80.m4s"] },
+          { id: 32, base_url: "https://cdn/32.m4s", backup_url: ["https://b1/32.m4s", "https://cdn/32.m4s"] },
+        ],
+      },
+    },
+  };
+  assert.deepEqual(collectStreamUrls(data, 32), ["https://cdn/32.m4s", "https://b1/32.m4s"], "按 qn 取对应那一路 + 备用镜像去重");
+  assert.deepEqual(collectStreamUrls(data, 64), ["https://cdn-hi/80.m4s", "https://b1/80.m4s"], "qn 缺失退回最高一路");
+  assert.deepEqual(collectStreamUrls({ code: -404, data: null }, 32), [], "无 dash 返回空数组");
+});
+
+test("collectStreamUrls：durl（progressive）分支也带 backup_url", () => {
+  const data = { code: 0, data: { durl: [{ url: "https://p/1.flv", backup_url: ["https://p/1b.flv"] }] } };
+  assert.deepEqual(collectStreamUrls(data, 32), ["https://p/1.flv", "https://p/1b.flv"]);
 });
 
 test("guessStreamExt", () => {
@@ -226,11 +250,15 @@ test("normalizeRequestedTimestamps：输出带 requested_time 原值", () => {
   assert.equal(normalizeRequestedTimestamps([999], 120, 6, segs), null, "out of range -> null");
 });
 
-test("normalizeRequestedTimestamps：5 秒去重", () => {
+test("normalizeRequestedTimestamps：只合并几乎同一时刻（0.5 秒窗口）", () => {
   const plan = normalizeRequestedTimestamps([10.0, 10.2, 10.4, 40], 120, 6, []);
   assert.equal(plan.length, 2, "near duplicates dropped");
   assert.deepEqual(plan.map((p) => p.time), [10, 40], "keeps first of each cluster, sorted ascending");
   assert.deepEqual(plan.map((p) => p.requested_time), [10, 40], "requested_time survives dedupe");
+
+  // 同一套的「全身 + 细节」经常只差 2–3 秒：必须两张都留住
+  const pair = normalizeRequestedTimestamps([55, 53, 49], 120, 6, []);
+  assert.deepEqual(pair.map((p) => p.requested_time), [49, 53, 55], "2 秒间隔不再被吃掉");
 });
 
 test("parseBlurMetadata：解析模糊分并选出最清晰帧", () => {
@@ -372,3 +400,81 @@ test("ASR_PROVIDERS：与 extractor 行为一致的枚举", () => {
   assert.deepEqual(ASR_PROVIDERS, ["bcut", "sherpa-onnx", "whisper-local", "auto", "none"]);
 });
 
+test("resolveSectionOrder：dsh 0.2.x 按宿主中央分配的槽位计算", () => {
+  const host = { getSectionOrder: (name) => ({ TOOL_WEB_FETCH: 2100 })[name] };
+  // 2100 = TOOL_WEB_FETCH，落在 1000–3100 的工具区内，紧邻取网页内容的工具
+  assert.equal(resolveSectionOrder(host), 2150);
+});
+
+test("resolveSectionOrder：dsh 0.1.x 无 getSectionOrder 时回退旧槽位", () => {
+  assert.equal(resolveSectionOrder({ section: () => () => {} }), LEGACY_SECTION_ORDER);
+  assert.equal(resolveSectionOrder({}), LEGACY_SECTION_ORDER);
+  assert.equal(resolveSectionOrder(undefined), LEGACY_SECTION_ORDER);
+});
+
+test("resolveSectionOrder：宿主答不上来或抛错时仍回退，不让插件加载失败", () => {
+  assert.equal(resolveSectionOrder({ getSectionOrder: (name) => ({})[name] }), LEGACY_SECTION_ORDER);
+  assert.equal(resolveSectionOrder({ getSectionOrder: () => "2100" }), LEGACY_SECTION_ORDER);
+  assert.equal(resolveSectionOrder({ getSectionOrder: () => { throw new Error("unknown section"); } }), LEGACY_SECTION_ORDER);
+});
+
+
+test("srtTime / clockTime：时间格式（毫秒与 H:MM:SS 边界）", () => {
+  assert.equal(srtTime(0), "00:00:00,000");
+  assert.equal(srtTime(13.819), "00:00:13,819");
+  assert.equal(srtTime(3725.5), "01:02:05,500");
+  assert.equal(clockTime(14), "0:14");
+  assert.equal(clockTime(3725), "1:02:05");
+});
+
+test("toSrt：序号连续、结束时间不越过下一段起点", () => {
+  const srt = toSrt([
+    { start: 0, end: 0, text: "第一句" },
+    { start: 2, end: 9, text: "第二句" },
+    { start: 3, end: 4, text: "第三句" },
+  ]);
+  const blocks = srt.trim().split("\n\n");
+  assert.equal(blocks.length, 3, "3 blocks");
+  assert.ok(blocks[0].startsWith("1\n00:00:00,000 --> 00:00:00,300"), "缺 end 时给 0.3s 保底");
+  assert.ok(blocks[1].includes("00:00:02,000 --> 00:00:03,000"), "end 被下一段 start 截断");
+  assert.equal(toSrt([]), "", "空输入");
+  assert.equal(toSrt([{ start: 1, end: 2, text: "   " }]), "", "空白段被丢弃");
+});
+
+test("toTimestampedText / toTranscriptMarkdown：逐句带时间戳", () => {
+  const segs = [{ start: 14, end: 16, text: "今天十六换一套" }, { start: 61, end: 63, text: "第二条" }];
+  assert.equal(toTimestampedText(segs), "[0:14] 今天十六换一套\n[1:01] 第二条");
+  const md = toTranscriptMarkdown({ bvid: "BV1xx", title: "标题", uploader: "up", duration: 351, source: "subtitle", language: "ai-zh", segments: segs });
+  assert.ok(md.startsWith("# 标题"), "标题行");
+  assert.ok(md.includes("BV1xx / up"), "BV 与 UP");
+  assert.ok(md.includes("**[0:14]** 今天十六换一套"), "逐句时间戳");
+  assert.ok(md.includes("2 段"), "段数按实际传入");
+});
+
+test("renderTranscript：有 segments 就带时间戳，超长仍保骨架", () => {
+  const out = renderTranscript(SUBTITLE_SEGS, "纯文本兜底");
+  assert.ok(out.startsWith("[0:00] 大家好今天聊聊"), "首句带时间戳");
+  assert.ok(out.includes("[0:30] 如图所示的界面"), "后续句带时间戳");
+  assert.equal(renderTranscript([], "没有时间轴"), "没有时间轴", "无 segments 退回纯文本");
+  const many = [];
+  for (let i = 0; i < 400; i++) many.push({ start: i * 2, end: i * 2 + 1, text: "第" + i + "句内容，用来把长度顶到上限以上" });
+  const capped = renderTranscript(many, "", 8000);
+  assert.ok(capped.length < many.length * 20, "被压缩");
+  assert.ok(capped.includes("全文时间索引"), "超长走时间索引");
+});
+
+test("writeTranscriptFiles：三件产物落盘且 json 形状可被缓存读取", async () => {
+  const { mkdtemp, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "dsh-bili-test-"));
+  const transcript = { source: "subtitle", language: "ai-zh", text: "两句", segments: SUBTITLE_SEGS, total_segments: 2 };
+  const saved = await writeTranscriptFiles(dir, { bvid: "BVx", title: "t", uploader: "u", duration: 60, transcript });
+  assert.ok(saved && saved.srt && saved.md && saved.json, "路径齐备");
+  const srt = await readFile(saved.srt, "utf8");
+  assert.ok(srt.includes("00:00:00,000 --> 00:00:05,000"), "srt 时间轴");
+  const json = JSON.parse(await readFile(saved.json, "utf8"));
+  assert.ok(typeof json.text === "string" && Array.isArray(json.segments), "缓存形状对齐 readTranscriptCache");
+  assert.equal(json.total_segments, 2);
+  assert.equal(await writeTranscriptFiles(dir, { transcript: { segments: [] } }), null, "空段落不落盘");
+});
