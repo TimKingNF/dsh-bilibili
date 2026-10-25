@@ -25,7 +25,7 @@ A DeepSeek Harness tool plugin that gives agents a `bilibili_extract` tool. Send
 
 ## 🚀 Installation
 
-Prerequisites: Node 18+, `ffmpeg` on PATH, `pnpm`.
+Prerequisites: dsh ≥ 0.1.0-rc.6 (verified on 0.2.1-rc.2), Node 18+, `ffmpeg` on PATH, and `pnpm`.
 
 ```sh
 # Option 1: install from GitHub (recommended)
@@ -93,46 +93,47 @@ For richer output formats (study notes, review tables, timelines, Q&A cards, etc
 
 ## 🔧 Configuration
 
-Defaults live in `cordis.patch.yml`; override any field in `$DSH_HOME/profiles/web/cordis.patch.yml` (later layers win per row):
+Defaults live in `cordis.patch.yml`. To change one, append a row with the same id to `$DSH_HOME/profiles/web/cordis.patch.yml` — that row's `config` replaces the defaults wholesale (no deep merge); fields you omit fall back to the plugin defaults:
 
 ```yaml
-- override:
-    - id: bilibili
-      config:
-        sessdata: ''                 # optional Bilibili SESSDATA (logged-in subtitles / more comments)
-        commentLimit: 20             # max comments to fetch
-        maxFrames: 6                 # max keyframes
-        extractFrames: true          # false = text-only mode
-        downloadVideo: true          # download video locally before capture (recommended)
-        keepVideo: false             # true = keep downloaded video files
-        maxVideoMinutes: 30          # videos longer than this are captured remotely per frame
-        maxDownloadMb: 800           # download size cap (MB)
-        quality: 32                  # 16=360p 32=480p 64=720p 80=1080p
-        detectScenes: true           # scene-change detection (sampled pass beyond 20 min)
-        sceneThreshold: 0.4          # scene threshold 0-1, higher = stricter
-        sharpFrames: true            # sharp-frame preference: blurdetect picks the sharpest frame within ±1.5s
-        asrProvider: 'bcut'          # ASR engine: bcut (default) | sherpa-onnx (Chinese) | whisper-local | auto | none
-        sherpaBin: ''                # sherpa-onnx-offline binary path
-        sherpaModel: ''              # sherpa model onnx path (SenseVoice/Paraformer)
-        sherpaModelType: 'sense-voice'  # sense-voice | paraformer | zipformer2-ctc
-        sherpaTokens: ''             # sherpa tokens.txt path
-        sherpaThreads: 0             # sherpa CPU threads (0 = auto)
-        whisperBin: 'whisper-cli'    # whisper.cpp binary (PATH or absolute path)
-        whisperModel: 'medium'       # small / medium / large-v3, or a ggml-*.bin path
-        whisperModelDir: ''          # model dir; empty = <whisperBin dir>/models
-        whisperLanguage: 'zh'        # transcription language
-        whisperThreads: 0            # whisper CPU threads (0 = auto)
-        visionProvider: 'none'       # frame vision: none (default) | ollama | llama-cpp | openai-compatible
-        visionBaseUrl: ''            # vision endpoint; empty + ollama = http://localhost:11434/v1
-        visionModel: 'medium'        # low(2B) / medium(4B) / high(8B), or an explicit model name
-        visionApiKey: ''             # cloud vision API key (empty for local)
-        visionPrompt: ''             # vision prompt (empty = built-in per-model default)
-        visionPromptByModel: {}      # per-model prompt overrides (explicit model name / low / medium)
-        visionMaxFrames: 6           # max frames to describe (aligned with maxFrames)
-        framesDir: ''                # frame output dir; empty = system temp/dsh-bilibili/<bvid>
-        summaryTemplate: ''          # template path; empty = bundled templates/summary.md
-        timeoutMs: 300000            # overall tool timeout (ms)
+- id: bilibili
+  config:
+    sessdata: ''                 # optional Bilibili SESSDATA (logged-in subtitles / more comments)
+    commentLimit: 20             # max comments to fetch
+    maxFrames: 6                 # max keyframes
+    extractFrames: true          # false = text-only mode
+    downloadVideo: true          # download video locally before capture (recommended)
+    keepVideo: false             # true = keep downloaded video files
+    maxVideoMinutes: 30          # videos longer than this are captured remotely per frame
+    maxDownloadMb: 800           # download size cap (MB)
+    quality: 32                  # 16=360p 32=480p 64=720p 80=1080p
+    detectScenes: true           # scene-change detection (sampled pass beyond 20 min)
+    sceneThreshold: 0.4          # scene threshold 0-1, higher = stricter
+    sharpFrames: true            # sharp-frame preference: blurdetect picks the sharpest frame within ±1.5s
+    asrProvider: 'bcut'          # ASR engine: bcut (default) | sherpa-onnx (Chinese) | whisper-local | auto | none
+    sherpaBin: ''                # sherpa-onnx-offline binary path
+    sherpaModel: ''              # sherpa model onnx path (SenseVoice/Paraformer)
+    sherpaModelType: 'sense-voice'  # sense-voice | paraformer | zipformer2-ctc
+    sherpaTokens: ''             # sherpa tokens.txt path
+    sherpaThreads: 0             # sherpa CPU threads (0 = auto)
+    whisperBin: 'whisper-cli'    # whisper.cpp binary (PATH or absolute path)
+    whisperModel: 'medium'       # small / medium / large-v3, or a ggml-*.bin path
+    whisperModelDir: ''          # model dir; empty = <whisperBin dir>/models
+    whisperLanguage: 'zh'        # transcription language
+    whisperThreads: 0            # whisper CPU threads (0 = auto)
+    visionProvider: 'none'       # frame vision: none (default) | ollama | llama-cpp | openai-compatible
+    visionBaseUrl: ''            # vision endpoint; empty + ollama = http://localhost:11434/v1
+    visionModel: 'medium'        # low(2B) / medium(4B) / high(8B), or an explicit model name
+    visionApiKey: ''             # cloud vision API key (empty for local)
+    visionPrompt: ''             # vision prompt (empty = built-in per-model default)
+    visionPromptByModel: {}      # per-model prompt overrides (explicit model name / low / medium)
+    visionMaxFrames: 6           # max frames to describe (aligned with maxFrames)
+    framesDir: ''                # frame output dir; empty = system temp/dsh-bilibili/<bvid>
+    summaryTemplate: ''          # template path; empty = bundled templates/summary.md
+    timeoutMs: 300000            # overall tool timeout (ms)
 ```
+
+Restart the profile after editing: config is read once when the plugin loads, with no hot reload. Credentials written by `bilibili_login` are the exception — no restart needed.
 
 ### Local ASR transcription (optional; sherpa-onnx recommended for Chinese)
 

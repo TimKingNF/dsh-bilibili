@@ -25,7 +25,7 @@ DeepSeek Harness 工具插件：给 Agent 添加 `bilibili_extract` 工具。发
 
 ## 🚀 安装
 
-前置：Node 18+、`ffmpeg` 在 PATH 中、`pnpm`。
+前置：dsh ≥ 0.1.0-rc.6（已在 0.2.1-rc.2 实测通过）、Node 18+、`ffmpeg` 在 PATH 中、`pnpm`。
 
 ```sh
 # 方式一：从 GitHub 安装（推荐）
@@ -103,46 +103,47 @@ dsh plugin --profile web add ./dsh-bilibili
 
 ## 🔧 配置
 
-默认值写在 `cordis.patch.yml`，可在 `$DSH_HOME/profiles/web/cordis.patch.yml` 覆盖（后写覆盖整行 config）：
+默认值写在 `cordis.patch.yml`。要改就在 `$DSH_HOME/profiles/web/cordis.patch.yml` 里追加一行同 id 的 patch——这一行的 `config` 会整块替换默认值（不深合并），没写的字段回落插件默认值：
 
 ```yaml
-- override:
-    - id: bilibili
-      config:
-        sessdata: ''                 # 可选，B站 SESSDATA；留空时自动读取 bilibili_login 保存的 .sessdata.json
-        commentLimit: 20             # 评论抓取数量上限
-        maxFrames: 6                 # 最大抓帧数
-        extractFrames: true          # 是否抓帧（false = 纯文字模式）
-        downloadVideo: true          # 抓帧前先下载视频到本地（推荐）
-        keepVideo: false             # true = 永久保留下载的视频文件
-        maxVideoMinutes: 30          # 超过此时长的视频不下载，远程逐帧
-        maxDownloadMb: 800           # 下载大小上限（MB）
-        quality: 32                  # 16=360p 32=480p 64=720p 80=1080p
-        detectScenes: true           # 场景切换检测（>20 分钟自动切抽样式）
-        sceneThreshold: 0.4          # 场景切换阈值 0-1，越大越严格
-        sharpFrames: true            # 清晰帧优选：目标时间点 ±1.5s 内 blurdetect 选最清晰帧
-        asrProvider: 'bcut'          # ASR 引擎：bcut(必剪,默认) | sherpa-onnx(中文推荐) | whisper-local | auto | none
-        sherpaBin: ''                # sherpa-onnx-offline 可执行文件路径
-        sherpaModel: ''              # sherpa 模型 onnx 路径（SenseVoice/Paraformer）
-        sherpaModelType: 'sense-voice'  # sense-voice | paraformer | zipformer2-ctc
-        sherpaTokens: ''             # sherpa tokens.txt 路径
-        sherpaThreads: 0             # sherpa CPU 线程数（0=自动）
-        whisperBin: 'whisper-cli'    # whisper.cpp 可执行文件（PATH 或绝对路径）
-        whisperModel: 'medium'       # 模型三档：small(低) / medium(中) / large-v3(高)，或 ggml-*.bin 路径
-        whisperModelDir: ''          # 模型目录，留空 = <whisperBin 同目录>/models
-        whisperLanguage: 'zh'        # 转写语言
-        whisperThreads: 0            # whisper CPU 线程数（0=自动）
-        visionProvider: 'none'       # 帧图视觉描述：none(默认) | ollama | llama-cpp | openai-compatible
-        visionBaseUrl: ''            # 视觉服务地址，留空且 ollama = http://localhost:11434/v1
-        visionModel: 'medium'        # 三档：low(2B) / medium(4B) / high(8B)，或显式模型名
-        visionApiKey: ''             # 云端视觉 API Key（本地留空）
-        visionPrompt: ''             # 识图提示词（留空 = 按模型自动选内置提示词）
-        visionPromptByModel: {}      # 分模型提示词覆盖（显式模型名 / low / medium）
-        visionMaxFrames: 6           # 最多描述几张帧（与 maxFrames 对齐）
-        framesDir: ''                # 帧图输出目录，留空 = 系统临时目录/dsh-bilibili/<bvid>
-        summaryTemplate: ''          # 输出模板路径，留空 = 内置 templates/summary.md
-        timeoutMs: 300000            # 工具整体超时（毫秒）
+- id: bilibili
+  config:
+    sessdata: ''                 # 可选，B站 SESSDATA；留空时自动读取 bilibili_login 保存的 .sessdata.json
+    commentLimit: 20             # 评论抓取数量上限
+    maxFrames: 6                 # 最大抓帧数
+    extractFrames: true          # 是否抓帧（false = 纯文字模式）
+    downloadVideo: true          # 抓帧前先下载视频到本地（推荐）
+    keepVideo: false             # true = 永久保留下载的视频文件
+    maxVideoMinutes: 30          # 超过此时长的视频不下载，远程逐帧
+    maxDownloadMb: 800           # 下载大小上限（MB）
+    quality: 32                  # 16=360p 32=480p 64=720p 80=1080p
+    detectScenes: true           # 场景切换检测（>20 分钟自动切抽样式）
+    sceneThreshold: 0.4          # 场景切换阈值 0-1，越大越严格
+    sharpFrames: true            # 清晰帧优选：目标时间点 ±1.5s 内 blurdetect 选最清晰帧
+    asrProvider: 'bcut'          # ASR 引擎：bcut(必剪,默认) | sherpa-onnx(中文推荐) | whisper-local | auto | none
+    sherpaBin: ''                # sherpa-onnx-offline 可执行文件路径
+    sherpaModel: ''              # sherpa 模型 onnx 路径（SenseVoice/Paraformer）
+    sherpaModelType: 'sense-voice'  # sense-voice | paraformer | zipformer2-ctc
+    sherpaTokens: ''             # sherpa tokens.txt 路径
+    sherpaThreads: 0             # sherpa CPU 线程数（0=自动）
+    whisperBin: 'whisper-cli'    # whisper.cpp 可执行文件（PATH 或绝对路径）
+    whisperModel: 'medium'       # 模型三档：small(低) / medium(中) / large-v3(高)，或 ggml-*.bin 路径
+    whisperModelDir: ''          # 模型目录，留空 = <whisperBin 同目录>/models
+    whisperLanguage: 'zh'        # 转写语言
+    whisperThreads: 0            # whisper CPU 线程数（0=自动）
+    visionProvider: 'none'       # 帧图视觉描述：none(默认) | ollama | llama-cpp | openai-compatible
+    visionBaseUrl: ''            # 视觉服务地址，留空且 ollama = http://localhost:11434/v1
+    visionModel: 'medium'        # 三档：low(2B) / medium(4B) / high(8B)，或显式模型名
+    visionApiKey: ''             # 云端视觉 API Key（本地留空）
+    visionPrompt: ''             # 识图提示词（留空 = 按模型自动选内置提示词）
+    visionPromptByModel: {}      # 分模型提示词覆盖（显式模型名 / low / medium）
+    visionMaxFrames: 6           # 最多描述几张帧（与 maxFrames 对齐）
+    framesDir: ''                # 帧图输出目录，留空 = 系统临时目录/dsh-bilibili/<bvid>
+    summaryTemplate: ''          # 输出模板路径，留空 = 内置 templates/summary.md
+    timeoutMs: 300000            # 工具整体超时（毫秒）
 ```
+
+改完重启 profile：配置只在插件加载时读一次，没有热更新。`bilibili_login` 扫码写入的凭证是例外，不用重启。
 
 ### 本地 ASR 转写（可选，中文推荐 sherpa-onnx）
 

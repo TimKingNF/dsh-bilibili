@@ -1,6 +1,8 @@
 # dsh-bilibili bundle patch — one insert row over the profile tree.
-# Defaults live here; override any field in profiles/web/cordis.patch.yml
-# (e.g. sessdata, commentLimit) — later layers win per row.
+# Defaults live here. To change one, add a row with the same id to
+# $DSH_HOME/profiles/<profile>/cordis.patch.yml: its `config` replaces this
+# one wholesale, so unlisted fields fall back to the plugin's schema defaults
+# (i.e. the values below).
 - insert:
     - id: bilibili
       name: 'dsh-bilibili'
